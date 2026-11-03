@@ -1,5 +1,9 @@
 /* "Tape" layout: a step-by-step wizard. Every service gets its own step with an Include / Skip choice,
    so services can be added or dropped at any point. Ends on a printed receipt. */
+(function () {
+"use strict";
+const { CONFIG, SERVICES, createState, money, esc, estimate, renderFields, handleFieldEvent, summaryText, copyText } = window.OakEstimator;
+
 const S = createState();
 let step = 0, period = "month";
 const $ = id => document.getElementById(id);
@@ -108,3 +112,4 @@ document.addEventListener("click", ev => {
 }));
 
 render();
+})();
