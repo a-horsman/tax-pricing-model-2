@@ -3,25 +3,21 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>Fee Estimator | Oak Capital</title>
-  <meta name="description" content="Estimate the cost of tax, bookkeeping, payroll, fractional CFO and valuation services.">
+  <title>Tax Fee Estimator | Oak Capital</title>
+  <meta name="description" content="Estimate your annual fee for individual and business tax returns and tax planning.">
   <link rel="stylesheet" href="styles.css">
   <script src="engine.js" defer></script>
   <script src="ui.js" defer></script>
 </head>
 <body>
 <div class="wrap">
-  <header class="top">
-    <div class="brand">Oak Capital · Fee estimator</div>
-    <div class="running" aria-live="polite"><span class="lbl">Running total</span><output id="running"></output></div>
+  <header class="masthead">
+    <div class="brand">Oak Capital · Private Client Accounting</div>
+    <h1>Your engagement, line by line</h1>
+    <p class="lede">Include the services you need and open each one to tailor it. The statement at the bottom lists every fee in your annual engagement.</p>
   </header>
-  <ol class="rail" id="rail" aria-label="Steps"></ol>
-  <section class="stage" id="stage"></section>
-  <nav class="pager" aria-label="Step navigation">
-    <button type="button" class="btn ghost" id="back">← Back</button>
-    <span class="count" id="count"></span>
-    <button type="button" class="btn primary" id="next">Next →</button>
-  </nav>
+  <section class="ledger" id="ledger" aria-label="Services"></section>
+  <section class="statement" id="statement" aria-live="polite" aria-label="Statement of estimated fees"></section>
 </div>
 </body>
 </html>

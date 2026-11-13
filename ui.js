@@ -1,110 +1,86 @@
-/* "Tape" layout: a step-by-step wizard. Every service gets its own step with an Include / Skip choice,
-   so services can be added or dropped at any point. Ends on a printed receipt. */
+/* "Statement" layout: an accordion of services with include switches, followed by a full fee statement table. */
 (function () {
 "use strict";
-const { CONFIG, SERVICES, createState, money, esc, estimate, renderFields, handleFieldEvent, summaryText, copyText } = window.OakEstimator;
+const { CONFIG, SERVICES, createState, money, esc, totalText, estimate, renderFields, handleFieldEvent, summaryText, copyText } = window.OakEstimator;
 
 const S = createState();
-let step = 0, period = "month";
+const open = new Set([SERVICES[0].key]);
 const $ = id => document.getElementById(id);
-const STEPS = [...SERVICES.map(s => s.key), "review"];
-const svcOf = k => SERVICES.find(s => s.key === k);
-const lower = n => n.charAt(0).toLowerCase() + n.slice(1);
+const fmt = v => (v < 0 ? "−" : "") + money(Math.abs(v));
 
-function receipt(e) {
-  const k = period === "year" ? 12 : 1, sfx = period === "year" ? "per year" : "per month";
-  const recurring = e.groups.some(g => g.lines.length);
-  if (!e.groups.length) return `<div class="tape"><div class="sum-head"><div class="lbl">Estimated recurring fee</div><div class="total"><small>No services included yet</small></div></div></div>`;
-  return `<div class="tape">
-    <div class="sum-head">
-      <div class="lbl">Estimated recurring fee</div>
-      <div class="total">${recurring ? `${money(e.low * k)} – ${money(e.high * k)}<small>${sfx}</small>` : `<small>No recurring services</small>`}</div>
-      ${e.customCount ? `<div class="note">${e.customCount} item${e.customCount > 1 ? "s" : ""} quoted separately by your CPA.</div>` : ""}
-    </div>
-    <div class="lines">${e.groups.filter(g => g.lines.length).map(g => `<div class="grp"><h3>${g.svc.name}<span>${money(g.sub * k)}</span></h3>${g.lines.map(l =>
-      `<div class="row${l.monthly < 0 ? " neg" : ""}"><span>${esc(l.label)}</span><span class="${l.custom ? "cq" : ""}">${l.custom ? "Custom quote" : (l.monthly < 0 ? "−" : "") + money(Math.abs(l.monthly) * k)}</span></div>`).join("")}</div>`).join("")}</div>
-    ${e.oneTime.length ? `<div class="onetime"><div class="lbl">One-time</div>${e.oneTime.map(o =>
-      `<div class="row"><span>${esc(o.label)}</span><span class="${o.amount == null ? "cq" : ""}">${o.amount == null ? "Custom quote" : money(o.amount)}</span></div>`).join("")}</div>` : ""}
-    <div class="foot">
-      <a class="btn primary" href="${CONFIG.bookingUrl}" target="_blank" rel="noopener">Book a consultation</a>
-      <button type="button" class="btn ghost" id="copy">Copy estimate summary</button>
-      <p class="fine">Assumes clean, current records and a standard scope. Ranges include a ${CONFIG.rangeAllowance * 100}% allowance for complexity found during onboarding.</p>
-    </div>
-  </div>`;
-}
-
-function sectionNote(e, key) {
+function subLabel(e, key) {
   const g = e.groups.find(g => g.svc.key === key);
-  if (!g) return "Skipped. This service isn't in your estimate.";
-  if (g.lines.length) return `Adds <b>${money(g.sub)}/mo</b> to your estimate.`;
-  if (g.oneTime.length) return `One-time fee of <b>${g.oneTime[0].amount == null ? "custom quote" : money(g.oneTime[0].amount)}</b>.`;
-  return "";
+  if (!g) return `<span class="off">Not included</span>`;
+  const parts = [];
+  if (g.lines.length) parts.push(`${money(g.sub)}<small>/yr</small>`);
+  const ot = g.oneTime.reduce((t, o) => t + (o.amount || 0), 0);
+  if (ot) parts.push(`${money(ot)}<small> one-time</small>`);
+  if (g.lines.some(l => l.custom)) parts.push(`<small class="cq">+ custom quote</small>`);
+  return parts.join(" ") || "–";
 }
 
-function light() {
-  const e = estimate(S);
-  $("running").textContent = e.groups.some(g => g.lines.length) ? `${money(e.low)} – ${money(e.high)}/mo` : "—";
-  const n = $("secnote"); if (n) n.innerHTML = sectionNote(e, n.dataset.key);
-}
-
-function renderRail() {
-  $("rail").innerHTML = STEPS.map((k, i) => {
-    const review = k === "review", on = !review && S.selected.has(k);
-    const mark = review ? "✓" : on ? "✓" : "–";
-    const state = review ? "" : on ? "in" : "out";
-    return `<li><button type="button" data-step="${i}" class="${state}" aria-current="${i === step ? "step" : "false"}"
-      aria-label="${review ? "Estimate" : `${svcOf(k).name}, ${on ? "included" : "skipped"}`}"><span class="n" aria-hidden="true">${review ? i + 1 : mark}</span>${review ? "Estimate" : svcOf(k).name}</button></li>`;
+function renderLedger(e) {
+  $("ledger").innerHTML = SERVICES.map(s => {
+    const on = S.selected.has(s.key), isOpen = on && open.has(s.key);
+    return `<article class="acct${on ? " on" : ""}">
+      <div class="acct-head">
+        <button type="button" class="switch" id="inc-${s.key}" role="switch" aria-checked="${on}" data-pick="${s.key}" aria-label="Include ${s.name}"><span></span></button>
+        <button type="button" class="acct-title" id="open-${s.key}" data-open="${s.key}" aria-expanded="${isOpen}" aria-controls="body-${s.key}"${on ? "" : " disabled"}>
+          <span class="name">${s.name}</span><span class="blurb">${s.blurb}</span>
+        </button>
+        <span class="acct-sub" id="sub-${s.key}">${subLabel(e, s.key)}</span>
+      </div>
+      ${isOpen ? `<div class="acct-body" id="body-${s.key}">${renderFields(S, s.key)}</div>` : ""}
+    </article>`;
   }).join("");
 }
 
-function render() {
-  const cur = STEPS[step], e = estimate(S);
-  renderRail();
-  let html = `<p class="step">Step ${step + 1} of ${STEPS.length}</p>`;
-  if (cur === "review") {
-    html += `<h1>Your estimate</h1>
-      <div class="review-picks">
-        <span class="lbl">Services in this estimate. Tap to add or remove.</span>
-        <div class="picker compact">${SERVICES.map(s => `<button type="button" class="svc" id="svc-${s.key}" data-pick="${s.key}" aria-pressed="${S.selected.has(s.key)}"><b>${s.name}</b></button>`).join("")}</div>
+function renderStatement(e) {
+  const recurring = e.groups.filter(g => g.lines.length);
+  const rows = recurring.map(g =>
+    `<tr class="g"><th scope="rowgroup" colspan="2">${g.svc.name}</th><td class="num">${money(g.sub)}</td></tr>` +
+    g.lines.map(l => `<tr><td></td><td>${esc(l.label)}</td>${l.custom
+      ? `<td class="num cq">Custom quote</td>`
+      : `<td class="num">${fmt(l.amount)}</td>`}</tr>`).join("")).join("");
+  $("statement").innerHTML = `
+    <div class="st-head">
+      <div>
+        <div class="lbl">Statement of estimated fees</div>
+        <div class="total">${recurring.length ? `${totalText(e)}<small> per year</small>` : `<small>No services included</small>`}</div>
+        ${e.customCount ? `<div class="note">${e.customCount} item${e.customCount > 1 ? "s are" : " is"} quoted separately by your CPA and not in this total.</div>` : ""}
       </div>
-      <div class="period" role="group" aria-label="Show prices">${["month", "year"].map(p =>
-        `<button type="button" id="p-${p}" data-period="${p}" aria-pressed="${period === p}">${p === "month" ? "Monthly" : "Annual"}</button>`).join("")}</div>
-      ${receipt(e)}`;
-  } else {
-    const svc = svcOf(cur), on = S.selected.has(cur);
-    html += `<h1>${svc.name}</h1>
-      <p class="lede">${svc.blurb}.</p>
-      <div class="include" role="group" aria-label="Include ${svc.name}">
-        <button type="button" class="choice" id="inc-yes" data-include="yes" aria-pressed="${on}"><b>Include</b><small>Price ${lower(svc.name)} in my estimate</small></button>
-        <button type="button" class="choice" id="inc-no" data-include="no" aria-pressed="${!on}"><b>Skip</b><small>I don't need this</small></button>
+      <div class="actions">
+        <a class="btn primary" href="${CONFIG.bookingUrl}" target="_blank" rel="noopener">Book a consultation</a>
+        <button type="button" class="btn ghost" id="copy">Copy summary</button>
       </div>
-      <p class="secnote" id="secnote" data-key="${cur}">${sectionNote(e, cur)}</p>
-      ${on ? `<div class="fields">${renderFields(S, cur)}</div>` : ""}`;
-  }
-  $("stage").innerHTML = html;
-  $("back").disabled = step === 0;
-  $("next").hidden = cur === "review";
-  const nextKey = STEPS[step + 1];
-  if (nextKey) $("next").textContent = nextKey === "review" ? "See estimate →" : `Next: ${svcOf(nextKey).name} →`;
-  $("count").textContent = `${S.selected.size} of ${SERVICES.length} services included`;
-  light();
+    </div>
+    ${recurring.length ? `<div class="tablewrap"><table>
+      <thead><tr><th scope="col">Service</th><th scope="col">Item</th><th scope="col" class="num">Annual fee</th></tr></thead>
+      <tbody>${rows}</tbody>
+      <tfoot><tr><th colspan="2" scope="row">Total engagement fee</th><td class="num">${money(e.low)}</td></tr>
+        ${e.high > e.low ? `<tr class="allow"><th colspan="2" scope="row">With ${CONFIG.rangeAllowance * 100}% complexity allowance</th><td class="num">${money(e.high)}</td></tr>` : ""}</tfoot>
+    </table></div>` : ""}
+    ${e.oneTime.length ? `<div class="onetime"><div class="lbl">One-time fees</div>${e.oneTime.map(o =>
+      `<div class="row"><span>${esc(o.label)}</span><span class="${o.amount == null ? "cq" : ""}">${o.amount == null ? "Custom quote" : money(o.amount)}</span></div>`).join("")}</div>` : ""}
+    <p class="fine">Annual fees based on our standard engagement rates. Assumes complete, organized records; your CPA confirms the final fee.</p>`;
 }
 
-const goTo = i => { step = Math.max(0, Math.min(STEPS.length - 1, i)); render(); $("rail").scrollIntoView({ block: "nearest" }); };
+function render() { const e = estimate(S); renderLedger(e); renderStatement(e); }
+function light() {
+  const e = estimate(S);
+  SERVICES.forEach(s => { const el = $("sub-" + s.key); if (el) el.innerHTML = subLabel(e, s.key); });
+  renderStatement(e);
+}
 
 document.addEventListener("click", ev => {
   const t = ev.target.closest("button"); if (!t) return;
-  if (t.dataset.include) {
-    const k = STEPS[step];
-    if (t.dataset.include === "yes") S.selected.add(k); else S.selected.delete(k);
-    render(); $(t.id).focus(); return;
+  if (t.dataset.pick) {
+    const k = t.dataset.pick;
+    if (S.selected.has(k)) { S.selected.delete(k); open.delete(k); } else { S.selected.add(k); open.add(k); }
+    render(); $("inc-" + k).focus(); return;
   }
-  if (t.dataset.pick) { const k = t.dataset.pick; S.selected.has(k) ? S.selected.delete(k) : S.selected.add(k); render(); $(t.id).focus(); return; }
-  if (t.dataset.step) { goTo(Number(t.dataset.step)); return; }
-  if (t.dataset.period) { period = t.dataset.period; render(); return; }
-  if (t.id === "back") { goTo(step - 1); return; }
-  if (t.id === "next") { goTo(step + 1); return; }
-  if (t.id === "copy") { copyText(summaryText(estimate(S), period), t); return; }
+  if (t.dataset.open) { const k = t.dataset.open; open.has(k) ? open.delete(k) : open.add(k); render(); $("open-" + k).focus(); return; }
+  if (t.id === "copy") { copyText(summaryText(estimate(S), "year"), t); return; }
   if (handleFieldEvent(S, ev)) render();
 });
 ["change", "input"].forEach(type => document.addEventListener(type, ev => {
